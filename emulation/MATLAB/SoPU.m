@@ -147,6 +147,7 @@ classdef SoPU
             
             % Computes the sum-of-products operation between the kernel patch and the image window and returns the output
             
+                        
             outputFM_element = sum(sum( obj.kernelPatch .* obj.imgWindow ) ); 
             
             

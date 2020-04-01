@@ -11,7 +11,7 @@
 
     
 %% MATLAB Implementation
-function [fm_unpacked] = FPGA_Runner(img_size, kernel_size)
+function [fm_array, test_img, test_kernel] = FPGA_Runner(img_size, kernel_size)
 
     %% Setup for FPGA Convolution 
 
@@ -19,38 +19,39 @@ function [fm_unpacked] = FPGA_Runner(img_size, kernel_size)
     % Create random integer matrix for test image and random float matrix for test kernel
     test_img    = randi(255, img_size);
         
-    % Zero Pad the image for full convolution
-%     for(i = 1 : img_size)
-%         if(i == 1 || i == img_size)
-%            for(x = 1 : img_size)
-%                test_img((i - 1) * img_size + x) = 0;
-%            end
-%         else
-%             test_img((i-1) * img_size + 1) = 0;
-%             test_img((i-1) * img_size + img_size) = 0;
-%         end
-%     end
+    % Zero pad the image
+%     new_img_dim = ceil(img_size / kernel_size ) * kernel_size; 
+
+    new_img_dim = img_size + 2;
     
-    test_kernel = zeros(kernel_size);
-    test_kernel(((kernel_size - 1)/2 * kernel_size + (kernel_size + 1)/2)) = 1; 
+    new_img = zeros(new_img_dim); 
+    new_img(2:new_img_dim-1, 2:new_img_dim-1) = test_img; 
+    
+        
+    test_kernel = rand(kernel_size); 
     
     % Create FPGA Module Objects for full HW design emulation
     
-    inputUART  = UART(test_img, test_kernel); 
-    SoPU_obj   = SoPU(kernel_size, kernel_size); 
-    ILB_obj    = ILB(kernel_size-1, img_size); 
-    outputUART = UART( zeros(img_size),[] ); 
+%     inputUART  = UART(test_img, test_kernel); 
+    inputUART  = UART(new_img, test_kernel); 
+    SoPU_obj   = SoPU(kernel_size, kernel_size);
+    
+%     ILB_obj    = ILB(kernel_size-1, img_size); 
+    ILB_obj    = ILB(kernel_size-1, new_img_dim); 
+    
+%     outputUART = UART( zeros(img_size),[] ); 
+    outputUART = UART( zeros(new_img_dim),[] ); 
    
    % Parameters for Convolution Control 
    kernel_len = numel(test_kernel); % also equal to kernel_size ^2, assuming square kernel
-   img_len    = numel(test_img); % same as numFM, but keeping the two separate for code clarity
-   numFM      = numel(test_img); % assuming 'same' style convolution
+   img_len    = numel(new_img); % same as numFM, but keeping the two separate for code clarity
+   numFM      = numel(new_img); % assuming 'same' style convolution
    
    sopu_ctr = 0; 
    fm_ctr   = 0; 
    
    % When the SoPU counter reaches this point, the "convolution" starts becoming valid 
-   sop_valid_threshold = (floor(kernel_size/2) * img_size) + (floor (kernel_size/2) + 1) -1; 
+   sop_valid_threshold = (floor(kernel_size/2) * new_img_dim) + (floor (kernel_size/2) + 1) -1; 
 
     
     %% Convolution Algorithm Execution
@@ -140,17 +141,23 @@ function [fm_unpacked] = FPGA_Runner(img_size, kernel_size)
     end 
     
   assert (fm_ctr == numFM);
+  fm_array = transpose (reshape(outputUART.uart_stream, size(new_img))); 
+  
+  % slice to get the original img_size 
+  fm_array = fm_array(2:new_img_dim-1, 2:new_img_dim-1); 
+  fm_actual = imfilter(test_img, test_kernel, 'same');
+  
+  % floating point matrices won't be exactly the same, checking magnitude of error instead
+  error_mag = norm( abs(fm_array - fm_actual)); 
+  rtol = 1e-10; 
+  
+  if (error_mag < rtol) 
+      disp("test passed")
+  else 
+      disp("test failed")
+  end 
   
   
-  %Compute Real Convolution
-  fm_unpacked = outputUART.uart_stream; 
-  
-  conv_test = transpose(reshape(fm_unpacked, size(test_img))); 
-  conv_real = conv2 (test_img, test_kernel, 'same'); 
-  
-  assert(isequal(conv_test,conv_real)); 
-    
-   
 end 
 
 
