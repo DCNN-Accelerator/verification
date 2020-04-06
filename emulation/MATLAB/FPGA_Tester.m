@@ -12,12 +12,12 @@ function [pass] = FPGA_Tester(img_path, kernel_path)
 %%%
 
 
-    test_im     = imread(img_path); 
+    test_img     = imread(img_path); 
     test_kernel = csvread(kernel_path);
     
     % Image preprocessing
-    test_im = imresize (rgb2gray(test_im), [512,512]) ; % converts from RGB colorspace to greyscale, and then resizes the image to 512x512
-    paddedImg = zeroPad(test_im, size(test_kernel,1) ); 
+    test_img = imresize (rgb2gray(test_img), [512,512]) ; % converts from RGB colorspace to greyscale, and then resizes the image to 512x512
+    paddedImg = zeroPad(test_img, size(test_kernel,1) ); 
     
     % tolerance value for difference in computed convolution and ground truth
     rtol = 1e-10;
@@ -34,7 +34,7 @@ function [pass] = FPGA_Tester(img_path, kernel_path)
     
     [execTime, fmStream] = FPGA_Runner(paddedImg, test_kernel); 
     
-    numZeroLayers = floor(size(kernel_dim,1)/2);
+    numZeroLayers = floor(size(test_kernel,1)/2);
     
     %1D to 2D 
     fmArray = reshape(transpose(fmStream), size(paddedImg)); 
