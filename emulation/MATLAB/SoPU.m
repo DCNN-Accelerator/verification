@@ -146,8 +146,10 @@ classdef SoPU
         function outputFM_element = run_conv(obj)
             
             % Computes the sum-of-products operation between the kernel patch and the image window and returns the output
-            
-                        
+%             disp ("Image Window")
+%             obj.imgWindow
+%             
+%                           
             outputFM_element = sum(sum( obj.kernelPatch .* obj.imgWindow ) ); 
             
             

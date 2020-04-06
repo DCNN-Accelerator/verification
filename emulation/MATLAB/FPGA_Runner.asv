@@ -11,13 +11,26 @@
 
     
 %% MATLAB Implementation
-function [execTime, fmStream] = FPGA_Runner(img, kernel)
+function [execTime, testPassed] = FPGA_Runner(img, kernel, rtol)
 
     %% Setup for FPGA Convolution 
 
     img_dim    = size(img,1); 
     kernel_dim = size(kernel,1); 
+    % Create random integer matrix for test image and random float matrix for test kernel
+    test_img    = randi(255, img_size);
+        
+    % Zero pad the image
+    % new_img_dim = ceil(img_size / kernel_size ) * kernel_size; 
 
+    new_img_dim = img_size + (kernel_size-1);
+    
+    new_img = zeros(new_img_dim); 
+    num_zero_layers = (kernel_size - 1) / 2; 
+    new_img(num_zero_layers + 1: size(new_img,1)-num_zero_layers, num_zero_layers+1:size(new_img,1)-num_zero_layers) = test_img; 
+        
+    test_kernel = rand(kernel_size); 
+    
    % Create FPGA Module Objects for full HW design emulation    
     inputUART  = UART(img, kernel); 
     SoPU_obj   = SoPU(kernel_dim, kernel_dim);
@@ -35,6 +48,7 @@ function [execTime, fmStream] = FPGA_Runner(img, kernel)
    % When the SoPU counter reaches this point, the "convolution" starts becoming valid 
    sop_valid_threshold = (floor(kernel_dim/2) * img_dim) + (floor (kernel_dim/2) + 1) -1; 
     
+   
     %% Convolution Algorithm Execution
     
     %%% 
@@ -54,7 +68,10 @@ function [execTime, fmStream] = FPGA_Runner(img, kernel)
         
     
     %%%
+    
+  
     % Step 1:  Fill Kernel in SoPU
+      
     tic;  
  
     for i = 1:kernel_len
@@ -62,9 +79,10 @@ function [execTime, fmStream] = FPGA_Runner(img, kernel)
         uartByte  = inputUART.readByte();        
         SoPU_obj  = SoPU_obj.kernel_write(uartByte);     
         inputUART = inputUART.incrementReadPtr(); 
+        
     end 
     
-    assert (inputUART.readPtr == (kernel_dim^2 + 1)); %make sure we read in all the kernel values
+    assert (inputUART.readPtr == (kernel_dim + 1), inputUART.readPtr); %make sure we read in all the kernel values
 
     % Step 2 of Convolution Algorithm
               
@@ -79,21 +97,27 @@ function [execTime, fmStream] = FPGA_Runner(img, kernel)
         
         % Run the SoPU to get the next feature map, used a local function for encapsulation
         [SoPU_obj, currentFM] = runSoPU(SoPU_obj, currentPixel, curr_ilb_bytes);
+%         sop_win_states(i) = SoPU_obj.imgWindow;
                 
         % if the SoPU ctr is above the threshold, start saving output FM values and increment the fm_ctr
         if (sopu_ctr >= sop_valid_threshold)
+            
             outputUART = outputUART.writeByte(currentFM);
             fm_ctr = fm_ctr + 1; 
-        end  
-        
+            
+        end 
+       
         inputUART = inputUART.incrementReadPtr(); %increment read ptr for UART
         sopu_ctr  = sopu_ctr + 1; % increment SoPU counter to keep track of valid
+       
     end 
+    
     
     assert (sopu_ctr == img_len, num2str(sopu_ctr)); % should not be over that at this point
     assert (fm_ctr == (img_len - sop_valid_threshold), fm_ctr); 
     assert (outputUART.writePtr == (fm_ctr + 1)); 
-   
+    
+    
     num_fm_remaining = numFM - fm_ctr; 
     
     for i = 1:num_fm_remaining
@@ -103,22 +127,48 @@ function [execTime, fmStream] = FPGA_Runner(img, kernel)
         curr_ilb_bytes = ILB_obj.readBytes(); 
         ILB_obj        = ILB_obj.writeByte(currentPixel); 
         
-        [SoPU_obj, currentFM] = runSoPU(SoPU_obj, currentPixel, curr_ilb_bytes);         
+        [SoPU_obj, currentFM] = runSoPU(SoPU_obj, currentPixel, curr_ilb_bytes); 
+        
+%         sop_win_states(:,:,i) = SoPU_obj.imgWindow;
+        
         outputUART = outputUART.writeByte(currentFM); 
         
         %increment helper variables
         sopu_ctr = sopu_ctr + 1;
         fm_ctr = fm_ctr + 1; 
+        
   
     end 
+  
     
   assert (fm_ctr == numFM);
+  fm_array = transpose (reshape(outputUART.uart_stream, size(new_img))); 
+  
+  % slice to get the original img_size 
+  fm_array = fm_array(num_zero_layers + 1: size(new_img,1)-num_zero_layers, num_zero_layers+1:size(new_img,1)-num_zero_layers);
+  fm_actual = imfilter(test_img, test_kernel, 'same');
   
   % Execution time
   execTime = toc; 
-  fmStream = outputUART.uart_stream;
+  
+  % floating point matrices won't be exactly the same, checking magnitude of error instead
+  error_mag = norm( abs(fm_array - fm_actual)); 
 
+  
+  % Show sopu window states
+  if (enableWindowLogging)
+    showSoPUStates(sopu_win_array);
+  end 
+  
+  if (error_mag < rtol) 
+      testPassed = 1;
+  else 
+      testPassed = 0; 
+  end 
+  
+  
 end 
+
 
 
 function [SoPU, outputFM] = runSoPU(SoPU, uartByte, ilb_Bytes)
@@ -136,6 +186,8 @@ function [SoPU, outputFM] = runSoPU(SoPU, uartByte, ilb_Bytes)
         SoPU  = SoPU.imgWrite_ILB(ilb_Bytes); 
         
         outputFM = SoPU.run_conv();
+
+
 end 
 
  
