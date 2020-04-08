@@ -2,6 +2,7 @@ import matlab.engine
 from scipy.signal import correlate2d
 import numpy as np
 import cv2
+import os
 
 """
 This script loads an image and a kernel, preprocesses them, and then calls the MATLAB-based implementation
@@ -30,7 +31,6 @@ def extractValidFM(fmStream, paddedDims, num_pad_layers):
     arr = np.reshape(fmStream, paddedDims)
     return arr[num_pad_layers:-num_pad_layers, num_pad_layers:-num_pad_layers]
     
-
 def checkMATLABOutput(img,kernel,fpgaFM,rtol):
 
     # Computes the ground truth correlation and checks the MATLAB output for similiarity based on a tolerance
@@ -44,7 +44,7 @@ def checkMATLABOutput(img,kernel,fpgaFM,rtol):
     
     return valid 
 
-def runMATLABSim(matlab, img_pth, kernel_size): 
+def runMATLABSim(matlab, img_pth, kernel_size,rtol): 
 
     # Load image, preprocess and zero pad
     img = cv2.imread(img_pth)
@@ -72,14 +72,21 @@ def runMATLABSim(matlab, img_pth, kernel_size):
     fpgaFM   = extractValidFM(fmStream, paddedDims=padded_img.shape, num_pad_layers=num_pad_layers)
 
     # Check the matlab output, and give pass/fail
-    checkMATLABOutput(rescaled_img,kernel,fpgaFM, rtol=1e-5)
+    return checkMATLABOutput(rescaled_img,kernel,fpgaFM, rtol)
 
 if __name__ == "__main__":
 
     eng = matlab.engine.start_matlab()
     eng.addpath('C:/Users/hkhaj/Desktop/Senior-Project/verification/emulation/util')
 
-    runMATLABSim(eng, img_pth='baby_yoda.jpeg', kernel_size=7)
+    dir = ""
+    pathsList = os.listdir(dir)
 
+    for path in pathsList:
 
+        testPassed = runMATLABSim(eng,img_pth=path,kernel_size=7,rtol=1e-10)
+        if testPassed == False: break 
+
+    
+    
 
